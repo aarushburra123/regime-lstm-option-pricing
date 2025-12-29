@@ -45,7 +45,13 @@ class DataPipeline:
         spy = yf.download('SPY', start=self.start_date, end=self.end_date, progress=False)
         
         # Calculate returns
-        spy['Returns'] = spy['Close'].pct_change()
+        # Handle potential MultiIndex columns
+        if isinstance(spy.columns, pd.MultiIndex):
+            close_col = [col for col in spy.columns if 'Close' in str(col)][0]
+        else:
+            close_col = 'Close'
+
+        spy['Returns'] = spy[close_col].pct_change()
         
         # Save to CSV
         filepath = os.path.join(self.data_dir, 'spy_prices.csv')
@@ -98,23 +104,44 @@ class DataPipeline:
         """
         print("Merging SPY and VIX data...")
         
+        # Flatten column names if they're MultiIndex (from yfinance)
+        if isinstance(spy.columns, pd.MultiIndex):
+            spy.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col 
+                          for col in spy.columns.values]
+        if isinstance(vix.columns, pd.MultiIndex):
+            vix.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col 
+                          for col in vix.columns.values]
+        
+        print(f"  SPY columns after flattening: {spy.columns.tolist()}")
+        print(f"  VIX columns after flattening: {vix.columns.tolist()}")
+        
+        # Select relevant columns
+        # SPY should have 'Close' or 'Close_SPY' and 'Returns'
+        spy_close_col = [col for col in spy.columns if 'Close' in col][0]
+        # Find the Returns column (might be 'Returns' or have a suffix after flattening)
+        spy_returns_col = [col for col in spy.columns if 'Returns' in col][0]
+        
+        spy_subset = spy[[spy_close_col, spy_returns_col]].copy()
+        spy_subset.columns = ['Close_SPY', 'Returns_SPY']
+        
+        # VIX should have 'Close' or 'Close_^VIX'
+        vix_close_col = [col for col in vix.columns if 'Close' in col][0]
+        vix_subset = vix[[vix_close_col]].copy()
+        vix_subset.columns = ['Close_VIX']
+        
+        # Merge on date index
         combined = pd.merge(
-            spy[['Close', 'Returns']],
-            vix[['Close']],
+            spy_subset,
+            vix_subset,
             left_index=True,
             right_index=True,
-            how='inner',
-            suffixes=('_SPY', '_VIX')
+            how='inner'
         )
-        # DEBUG FIX: Print columns to verify merge worked
-        print(f"\nDEBUG: Columns after merge: {combined.columns.tolist()}")
+        
+        print(f"  Columns after merge: {combined.columns.tolist()}")
+        
         # Add regime labels
-        # Handle potential column naming issues
-        vix_col = 'Close_VIX' if 'Close_VIX' in combined.columns else 'Close'
-        if vix_col not in combined.columns:
-            raise ValueError(f"Cannot find VIX close price column. Available columns: {combined.columns.tolist()}")
-
-        combined['Regime'] = combined[vix_col].apply(
+        combined['Regime'] = combined['Close_VIX'].apply(
             lambda x: 'High' if x >= 20 else 'Low'
         )
         
