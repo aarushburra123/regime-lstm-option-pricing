@@ -193,11 +193,17 @@ class DataPipeline:
 
 if __name__ == "__main__":
     # Run pipeline
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)  # Go up one level to project root
+    data_dir = os.path.join(project_root, 'data')
+    
     pipeline = DataPipeline(
         start_date='2020-01-01',
         end_date='2024-12-31',
-        data_dir='../data'
+        data_dir=data_dir  # ← Now it will always use the correct path
     )
+
     
     data = pipeline.run_full_pipeline()
     
